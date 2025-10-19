@@ -1,0 +1,24 @@
+<h1>Social Media OAuth Demo</h1>
+
+<p>
+    <a href="{{ url_for('twitter.login') }}">Login with Twitter</a> | 
+    <a href="{{ url_for('linkedin.login') }}">Login with LinkedIn</a> | 
+    <a href="{{ url_for('ai.ai_post') }}">Generate AI Post</a>
+</p>
+
+<p>
+{% if session.get('twitter_access_token') %}
+    Logged in to Twitter. <a href="{{ url_for('twitter.logout') }}">Logout</a>
+{% else %}
+    Not logged in to Twitter.
+{% endif %}
+</p>
+
+<p>
+{% if session.get('linkedin_access_token') %}
+    Logged in to LinkedIn. <a href="{{ url_for('linkedin.logout') }}">Logout</a>
+{% else %}
+    Not logged in to LinkedIn.
+{% endif %}
+</p>
+
