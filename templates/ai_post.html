@@ -27,8 +27,18 @@
       line-height: 1.4;
       white-space: pre-wrap;
     }
-    .user { align-self: flex-end; background: #2563eb; color: white; border-bottom-right-radius: 4px; }
-    .bot { align-self: flex-start; background: #e5e7eb; color: #111827; border-bottom-left-radius: 4px; }
+    .user {
+      align-self: flex-end;
+      background: #2563eb;
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+    .bot {
+      align-self: flex-start;
+      background: #e5e7eb;
+      color: #111827;
+      border-bottom-left-radius: 4px;
+    }
 
     .input-area {
       display: flex;
@@ -88,6 +98,8 @@
     <div class="message bot">👋 Hi! What would you like to post about today?</div>
   </div>
 
+  
+
   <div class="input-area">
     <select id="platformSelect">
       <option value="linkedin" selected>LinkedIn</option>
@@ -98,6 +110,15 @@
     <button id="voiceBtn">🎙️</button>
     <button id="sendBtn">Send</button>
   </div>
+
+  <hr>
+<h2>📅 Start a LinkedIn Campaign</h2>
+<form id="campaign-form">
+  <input type="text" name="topic" placeholder="Topic (e.g., AI Regulation)" required>
+  <input type="number" name="days" placeholder="Days (default 7)">
+  <input type="number" name="time" placeholder="Post time (hour, 0–23)">
+  <button type="submit">Start Campaign</button>
+</form>
 
   <script>
     const chatContainer = document.getElementById("chatContainer");
@@ -140,7 +161,7 @@
       // 🛑 Stop
       controls.querySelector(".stop-btn").onclick = () => synth.cancel();
 
-      // 🗣️ Feedback (regenerate)
+      // 🗣️ Feedback
       controls.querySelector(".feedback-btn").onclick = async () => {
         const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
         recognition.lang = "en-US";
@@ -159,39 +180,38 @@
           const feedbackData = await response.json();
           appendMessage(feedbackData.message || "🔄 Updated content:", "bot");
           appendMessage(feedbackData.preview, "bot");
-          renderControls(feedbackData.preview, platform); // ✅ Re-render controls every time
+          renderControls(feedbackData.preview, platform);
         };
         recognition.start();
       };
 
-    // 🚀 Post
-    controls.querySelector(".post-btn").onclick = async () => {
-      if (!previewText) {
-        appendMessage("⚠️ No content available to post.", "bot");
-        return;
-      }
+      // 🚀 Post
+      controls.querySelector(".post-btn").onclick = async () => {
+        if (!previewText) {
+          appendMessage("⚠️ No content available to post.", "bot");
+          return;
+        }
 
-      console.log("Preview before post:", previewText);
-      console.log("Preview before post:", platform);
+        const platform = document.getElementById("platformSelect").value;
+        appendMessage("🚀 Posting to " + platform + "...", "bot");
 
-      const resp = await fetch("/ai/api/post_confirmed", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform,
-          text: previewText
-        })
-      });
+        const resp = await fetch("/ai/api/post_confirmed", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform, text: previewText })
+        });
 
-      const postData = await resp.json();
-      if (resp.ok) {
-        appendMessage(postData.message || "✅ Post shared successfully!", "bot");
-      } else {
-        appendMessage(`⚠️ Post failed: ${postData.error || postData.message}`, "bot");
-      }
-    };
+        const postData = await resp.json();
 
-
+        if (resp.ok && postData.ok) {
+          appendMessage(postData.message || "✅ Post shared successfully!", "bot");
+        } else if (postData.error === "LinkedIn not authenticated") {
+          appendMessage("⚠️ You are not logged into LinkedIn. Please log in first.", "bot");
+          appendMessage("👉 <a href='/linkedin/login' target='_blank'>Login with LinkedIn</a>", "bot");
+        } else {
+          appendMessage(`⚠️ Post failed: ${postData.error || postData.message}`, "bot");
+        }
+      };
 
       // 🆕 New Chat
       controls.querySelector(".newchat-btn").onclick = async () => {
@@ -224,7 +244,7 @@
       if (data.preview) {
         appendMessage(data.message || "✨ Here's your preview:", "bot");
         appendMessage(data.preview, "bot");
-        renderControls(data.preview, platform); // ✅ Controls appear every time
+        renderControls(data.preview, platform);
       } else {
         appendMessage("⚠️ " + (data.error || "Something went wrong."), "bot");
       }
@@ -252,6 +272,18 @@
       };
       recognition.start();
     };
+
+    document.getElementById("campaign-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target));
+      const res = await fetch("/ai/campaign/start", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(data)
+      });
+      const out = await res.json();
+      alert(out.message || out.error);
+    });
   </script>
 </body>
 </html>

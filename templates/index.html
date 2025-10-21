@@ -1,24 +1,87 @@
-<h1>Social Media OAuth Demo</h1>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Social Media OAuth Dashboard</title>
+  <style>
+    body {
+      font-family: "Inter", sans-serif;
+      background: #f9fafb;
+      margin: 0;
+      padding: 40px;
+      color: #111827;
+    }
+    h1 {
+      color: #2563eb;
+    }
+    a {
+      color: #2563eb;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      padding: 20px;
+      margin-bottom: 20px;
+      max-width: 600px;
+    }
+    .status {
+      margin-top: 10px;
+      font-size: 15px;
+    }
+    .login-links {
+      margin-bottom: 20px;
+    }
+    button {
+      background: #2563eb;
+      color: white;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+  </style>
+</head>
+<body>
 
-<p>
-    <a href="{{ url_for('twitter.login') }}">Login with Twitter</a> | 
-    <a href="{{ url_for('linkedin.login') }}">Login with LinkedIn</a> | 
-    <a href="{{ url_for('ai.ai_post') }}">Generate AI Post</a>
-</p>
+  <h1>🌐 Social Media OAuth Dashboard</h1>
 
-<p>
-{% if session.get('twitter_access_token') %}
-    Logged in to Twitter. <a href="{{ url_for('twitter.logout') }}">Logout</a>
-{% else %}
-    Not logged in to Twitter.
-{% endif %}
-</p>
+  <div class="card">
+    <h2>LinkedIn Authentication</h2>
+    {% if session.get('linkedin_access_token') %}
+      <p class="status">✅ Logged in to LinkedIn.</p>
+      <a href="{{ url_for('linkedin.logout') }}">Logout from LinkedIn</a>
+    {% else %}
+      <p class="status">❌ Not logged in to LinkedIn.</p>
+      <a href="{{ url_for('linkedin.login') }}">Login with LinkedIn</a>
+    {% endif %}
+  </div>
 
-<p>
-{% if session.get('linkedin_access_token') %}
-    Logged in to LinkedIn. <a href="{{ url_for('linkedin.logout') }}">Logout</a>
-{% else %}
-    Not logged in to LinkedIn.
-{% endif %}
-</p>
+  <div class="card">
+    <h2>Twitter Authentication</h2>
+    {% if session.get('twitter_access_token') %}
+      <p class="status">✅ Logged in to Twitter.</p>
+      <a href="{{ url_for('twitter.logout') }}">Logout from Twitter</a>
+    {% else %}
+      <p class="status">❌ Not logged in to Twitter.</p>
+      <a href="{{ url_for('twitter.login') }}">Login with Twitter</a>
+    {% endif %}
+  </div>
 
+  <div class="card">
+    <h2>AI Post Assistant</h2>
+    <p>Once logged in, use the AI Assistant to generate and publish posts directly.</p>
+    <button onclick="window.location.href='/ai_post.html'">Launch AI Post Assistant 🚀</button>
+  </div>
+
+</body>
+</html>

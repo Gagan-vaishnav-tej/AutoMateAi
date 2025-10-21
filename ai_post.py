@@ -1,337 +1,206 @@
-from flask import Blueprint, jsonify, render_template, session, request, redirect, url_for, current_app
-import requests
-import time
-import os
-from markupsafe import escape
-from groq import Groq
+from datetime import datetime, timedelta
+import logging
+import re
+from flask import Blueprint, request, jsonify, current_app
+from ai_agent import AIPostAgent
+from memory import Memory
+import tools
+from flask import current_app
+from db import save_campaign, save_scheduled_post, get_token, mark_post_done
 
 ai_bp = Blueprint("ai", __name__, url_prefix="/ai")
+agent = AIPostAgent()
 
-GROQ_API_URL = os.environ.get("GROQ_API_URL")
+# Shared in-memory memory & agent instance (simple for now)
+memory = Memory(maxlen=100)
 
-# ==============================
-# 🔹 Conversation Memory Helpers
-# ==============================
-def get_conversation():
-    """Return the current conversation history."""
-    return session.get("ai_conversation", [])
-
-
-def add_message(role, content):
-    """Append a message to the ongoing conversation."""
-    convo = get_conversation()
-    convo.append({"role": role, "content": content})
-    session["ai_conversation"] = convo
-
-
-def clear_conversation():
-    """Reset chat memory for a new post."""
-    session.pop("ai_conversation", None)
-    session.pop("ai_generated_text", None)
-    session.pop("ai_topic", None)
-    session.pop("ai_platform", None)
-
-
-# ==============================
-# 🔹 Groq Utility Functions
-# ==============================
-def refine_prompt_with_llm(topic: str) -> str:
-    """Expand a topic into a refined and structured LinkedIn post prompt."""
-    GROQ_API_KEY = current_app.config.get("GROQ_API_KEY")
-    if not GROQ_API_KEY:
-        return "ERROR: GROQ_API_KEY is not set."
-
-    client = Groq(api_key=GROQ_API_KEY)
-
-    prompt = f"""
-You are an expert LinkedIn content strategist and writing assistant. Your job is to generate professional,
-insightful, and engaging LinkedIn posts for industry professionals.
-
-Generate a post on the topic below following these very strict rules:
-
-1. Keep the total character count under 2600 characters.
-2. Use a clear, professional, and conversational tone (no emojis, no hashtags unless requested).
-3. Structure the post as follows:
-   - **A bold headline** summarizing the topic (use markdown bold like **this**)
-   - 1–2 short paragraphs providing background or insights
-   - 2–3 concise bullet points or numbered takeaways if relevant
-   - End with a short engaging question or statement that invites discussion
-4. Avoid filler language and repetition. Prioritize clarity, accuracy, and flow.
-5. Use real-world examples, credible references, or statistics when appropriate.
-6. The writing should sound like a thought-leadership post from a professional, not a marketer.
-
-Topic: "{topic}"
-
-Now write a complete LinkedIn post draft following the above rules.
-"""
-
-    chat_completion = client.chat.completions.create(
-        messages=[{"role": "user", "content": prompt}],
-        model="llama-3.1-8b-instant",
-        temperature=0.7,
-        max_tokens=400,
-    )
-
-    return chat_completion.choices[0].message.content.strip()
-
-
-
-def generate_ai_content(topic: str) -> str:
-    """Generate the first version of the post."""
-    GROQ_API_KEY = current_app.config.get("GROQ_API_KEY")
-    if not GROQ_API_KEY:
-        return "ERROR: GROQ_API_KEY is not set."
-
-    refined = refine_prompt_with_llm(topic)
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    data = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": [{"role": "user", "content": refined}],
-        "temperature": 0.7,
-        "max_tokens": 600,
-    }
-
-    resp = requests.post(GROQ_API_URL, headers=headers, json=data, timeout=30)
-    result = resp.json()
-    generated = result["choices"][0]["message"]["content"].strip()
-    return generated
-
-def refine_existing_post(original_text: str, feedback: str) -> str:
-    """Refine an existing LinkedIn post based on user feedback, keeping the topic and context intact."""
-    GROQ_API_KEY = current_app.config.get("GROQ_API_KEY")
-    if not GROQ_API_KEY:
-        return "ERROR: GROQ_API_KEY is not set."
-
-    client = Groq(api_key=GROQ_API_KEY)
-
-    prompt = f"""
-You are an expert LinkedIn writing assistant helping a user improve an existing post.
-
-Your goals:
-- Apply the user's feedback to refine the original post.
-- Keep the same topic, intent, and factual content — do NOT change the subject.
-- Maintain a professional, natural, and conversational tone suitable for LinkedIn.
-- Keep the structure simple and scannable:
-  - **Headline**
-  - 1–2 concise paragraphs
-  - Optional 2–3 bullet points if appropriate
-  - A short closing statement or engaging question.
-- Keep the total length under 2800 characters (LinkedIn limit).
-- Never summarize or rewrite on a completely new topic.
-- Only output the improved post, no explanations or commentary.
-
-Original Post:
-\"\"\"{original_text}\"\"\"
-
-User Feedback:
-\"\"\"{feedback}\"\"\"
-
-Revise the post to align with the feedback while keeping the same topic and flow.
-"""
-
-    response = client.chat.completions.create(
-        messages=[
-            {"role": "system", "content": "You are a professional LinkedIn writing assistant."},
-            {"role": "user", "content": prompt}
-        ],
-        model="llama-3.1-8b-instant",
-        temperature=0.6,
-        max_tokens=450,
-    )
-
-    revised_post = response.choices[0].message.content.strip()
-
-    # Ensure LinkedIn safe length
-    if len(revised_post) > 2800:
-        revised_post = revised_post[:2790].rsplit(" ", 1)[0] + "..."
-
-    return revised_post
-
-
-
-# ==============================
-# 🔹 Main Post Route (UI)
-# ==============================
-@ai_bp.route("/post", methods=["GET", "POST"])
-def ai_post():
-    if request.method == "GET":
-        clear_conversation()
-        return render_template("ai_post.html")
-
-    action = request.form.get("action")
-    platform = request.form.get("platform")
-    topic = request.form.get("topic")
-
-    if action == "Generate Preview":
-        if not topic or not platform:
-            return "Topic and platform are required.", 400
-
-        generated_text = generate_ai_content(topic)
-        session["ai_generated_text"] = generated_text
-        session["ai_topic"] = topic
-        session["ai_platform"] = platform
-        add_message("assistant", generated_text)
-
-        return jsonify({"preview": generated_text})
-
-    elif action == "New Chat":
-        clear_conversation()
-        return jsonify({"status": "reset", "message": "🆕 New chat started."})
-
-    elif action == "Post Now":
-        return post_confirmed()
-
-    return "Invalid action.", 400
-
-
-# ==============================
-# 🔹 Voice / Chat Interaction
-# ==============================
 @ai_bp.route("/api/voice_intent", methods=["POST"])
 def voice_intent():
     data = request.get_json()
-    user_input = data.get("input", "").strip()
+    user_input = data.get("input")
+    platform = data.get("platform", "linkedin")
 
     if not user_input:
-        return jsonify({"error": "No input received"}), 400
+        return jsonify({"ok": False, "error": "No input provided"}), 400
 
-    add_message("user", user_input)
-    prev_text = session.get("ai_generated_text")
-
-    # 🧠 First input → generate a new post
-    if not prev_text:
-        generated_text = generate_ai_content(user_input)
-        session["ai_topic"] = user_input
-        session["ai_generated_text"] = generated_text
-        add_message("assistant", generated_text)
-
-        return jsonify({
-            "preview": generated_text,
-            "message": "🧠 Generated initial post."
-        })
-
-    # 🔁 Feedback given → regenerate based on user feedback
-    refined_text = refine_existing_post(prev_text, user_input)
-    session["ai_generated_text"] = refined_text
-    add_message("assistant", refined_text)
-
-    return jsonify({
-        "preview": refined_text,
-        "message": "🔄 Regenerated content based on your feedback."
-    })
+    result = agent.handle_user_input(user_input, platform)
+    return jsonify(result)
 
 
-# ==============================
-# 🔹 Confirm + Publish Post
-# ==============================
 @ai_bp.route("/api/post_confirmed", methods=["POST"])
 def post_confirmed():
-    data = request.get_json(silent=True) or {}
-    platform = data.get("platform") or session.get("ai_platform")
-    generated_text = data.get("text") or session.get("ai_generated_text")
-    generated_text = session.get("ai_generated_text")  # or from request body
-    if len(generated_text) > 3000:
-        generated_text = generated_text[:2997].rsplit(" ", 1)[0] + "..."
-    generated_text = convert_markdown_bold_to_unicode(generated_text)
-
-    if not platform or not generated_text:
-        return jsonify({"error": "No content available to post."}), 400
-
+    """
+    Body: { platform, text }
+    """
     try:
-        # --- LinkedIn ---
+        data = request.get_json() or {}
+        platform = data.get("platform")
+        text = data.get("text")
+        if not platform or not text:
+            return jsonify({"ok": False, "message": "platform and text are required"}), 400
+
+        # choose tool
         if platform == "linkedin":
-            access_token = session.get("linkedin_access_token")
-            if not access_token:
-                return jsonify({"error": "Not authenticated with LinkedIn"}), 401
-
-            headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-            user_info = requests.get("https://api.linkedin.com/v2/userinfo", headers=headers)
-            if user_info.status_code != 200:
-                return jsonify({"error": "Failed to fetch LinkedIn user info"}), 400
-
-            author = f"urn:li:person:{user_info.json()['sub']}"
-            post_data = {
-                "author": author,
-                "lifecycleState": "PUBLISHED",
-                "specificContent": {
-                    "com.linkedin.ugc.ShareContent": {
-                        "shareCommentary": {"text": generated_text},
-                        "shareMediaCategory": "NONE",
-                    }
-                },
-                "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
-            }
-
-            resp = requests.post("https://api.linkedin.com/v2/ugcPosts", headers=headers, json=post_data)
-            if resp.status_code == 201:
-                clear_conversation()
-                return jsonify({"status": "success", "message": "✅ LinkedIn post shared successfully!"})
-            else:
-                return jsonify({"error": f"LinkedIn error: {resp.text}"}), 400
-
-        # --- Twitter ---
-        elif platform == "twitter":
-            access_token = session.get("twitter_access_token")
-            if not access_token:
-                return jsonify({"error": "Not authenticated with Twitter"}), 401
-
-            headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-            chunks = [generated_text[i:i + 280] for i in range(0, len(generated_text), 280)]
-            prev_id = None
-            for chunk in chunks:
-                time.sleep(1)
-                payload = {"text": chunk}
-                if prev_id:
-                    payload["reply"] = {"in_reply_to_tweet_id": prev_id}
-                resp = requests.post("https://api.twitter.com/2/tweets", headers=headers, json=payload)
-                if resp.status_code == 201:
-                    prev_id = resp.json()["data"]["id"]
-                else:
-                    return jsonify({"error": f"Twitter error: {resp.text}"}), 400
-
-            clear_conversation()
-            return jsonify({"status": "success", "message": f"✅ Posted {len(chunks)} tweets successfully!"})
-
+            access_token = get_token("linkedin")
+            res = tools.post_to_linkedin(text,access_token)
+        elif platform in ("twitter", "x"):
+            res = tools.post_to_twitter(text)
         else:
-            return jsonify({"error": f"Unsupported platform: {platform}"}), 400
+            return jsonify({"ok": False, "message": "Unknown platform"}), 400
+
+        agent.reflect(res)
+        return jsonify(res)
+    except Exception as e:
+        current_app.logger.exception("post_confirmed error")
+        return jsonify({"ok": False, "message": "Internal error", "error": str(e)}), 500
+
+@ai_bp.route("/post", methods=["POST"])
+def post_action():
+    """
+    Support the 'New Chat' button that your frontend calls via /ai/post
+    Expects form body like { action: "New Chat" }
+    """
+    try:
+        action = request.form.get("action")
+        if action and action.lower().strip() == "new chat":
+            # clear memory for simplicity
+            memory.history.clear()
+            memory.last_preview = None
+            return jsonify({"ok": True, "message": "🆕 New chat started."})
+        return jsonify({"ok": False, "message": "Unknown action"}), 400
+    except Exception as e:
+        current_app.logger.exception("post_action error")
+        return jsonify({"ok": False, "message": "Internal error", "error": str(e)}), 500
+
+
+
+def split_plan_into_days(plan_text: str):
+    """
+    Splits a multi-day AI-generated plan into individual daily posts.
+    Expects text like 'Day 1: ...', 'Day 2: ...'
+    Returns: [{"title": "Day 1: ...", "content": "..."}]
+    """
+    # plan_text = re.sub(r"(?:\*{0,2}|#*\s*)?(?:𝐃𝐚𝐲|Day|DAY)\s*[\d𝟎-𝟗]+\s*[:\-–]\s*", "", plan_text, flags=re.IGNORECASE)
+
+    pattern = r"(?=(?:\bDay|𝐃𝐚𝐲)\s*\d+\s*[:：])"
+    parts = re.split(pattern, plan_text, flags=re.IGNORECASE)
+    daily_posts = []
+
+    for part in parts:
+        clean = part.strip()
+        if not clean:
+            continue
+
+        # Extract title (e.g., "Day 1: Something")
+        lines = clean.splitlines()
+        title = lines[0].strip()
+        body = "\n".join(lines[1:]).strip()
+
+        daily_posts.append({
+            "title": title,
+            "content": body or title  # fallback if body is empty
+        })
+
+    return daily_posts
+
+
+@ai_bp.route("/campaign/start", methods=["POST"])
+def start_campaign():
+    try:
+        data = request.get_json()
+        topic = data.get("topic")
+        days = int(data.get("days", 7))
+        hour = int(data.get("hour", 9))
+        minute = int(data.get("minute", 0))
+
+        if not topic:
+            return jsonify({"ok": False, "error": "Topic is required"}), 400
+
+        # STEP 1: Ask AI for a multi-day content plan
+        ai_agent = AIPostAgent()
+        plan_prompt = f"Create a {days}-day LinkedIn post campaign plan about '{topic}', with each day labeled 'Day 1:', 'Day 2:' etc., and a brief title/summary for each."
+        resp = ai_agent.handle_user_input(plan_prompt, "linkedin")
+        generated_plan = resp.get("text") or resp.get("preview", "")
+
+        if not generated_plan:
+            return jsonify({"ok": False, "error": "AI plan generation failed"}), 500
+
+        daily_posts = split_plan_into_days(generated_plan)
+        campaign_id = save_campaign(topic, days, hour, minute)
+
+        start_time = datetime.now().replace(hour=hour, minute=minute, second=0, microsecond=0)
+        scheduler = current_app.scheduler
+
+        for i, post in enumerate(daily_posts):
+            run_time = start_time + timedelta(days=i)
+            job_id = f"campaign_{campaign_id}_{i+1}"
+
+            # Store only subtopic title — full post will be generated later
+            scheduler.add_job(
+                func=execute_scheduled_post,
+                trigger="date",
+                run_date=run_time,
+                args=[post["title"], f"{campaign_id}_{i+1}"],
+                id=job_id,
+            )
+            save_scheduled_post(campaign_id, post["title"], run_time.isoformat())
+
+        return jsonify({
+            "ok": True,
+            "message": f"📅 Campaign scheduled with {len(daily_posts)} posts."
+        })
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
-# helper functions (paste into ai_post.py or utils)
-def to_unicode_bold(text: str) -> str:
-    out = []
-    for ch in text:
-        code = ord(ch)
-        if 0x41 <= code <= 0x5A:
-            out.append(chr(0x1D400 + (code - 0x41)))
-        elif 0x61 <= code <= 0x7A:
-            out.append(chr(0x1D41A + (code - 0x61)))
-        elif 0x30 <= code <= 0x39:
-            out.append(chr(0x1D7CE + (code - 0x30)))
+
+
+def execute_scheduled_post(topic_variant, post_id=None):
+    """
+    This runs automatically each day at the scheduled time.
+    Generates AI content and posts to LinkedIn, then marks the post done.
+    """
+
+    from tools import post_to_linkedin
+    from datetime import datetime
+    from app import get_app_context  # ✅ import the helper
+
+    logging.info(f"🚀 Executing scheduled post: {topic_variant[:80]}... (Post ID: {post_id})")
+
+    try:
+        # ✅ Manually create and push an app context
+        ctx = get_app_context()
+
+        access_token = get_token("linkedin")
+        if not access_token:
+            logging.warning("⚠️ LinkedIn not authenticated. Skipping scheduled post.")
+            return
+
+        # Generate post text
+        ai_agent = AIPostAgent()
+        generated_post = ai_agent.handle_user_input(topic_variant, "linkedin")
+
+        text = generated_post.get("text") or generated_post.get("preview", "")
+        if not text.strip():
+            logging.warning(f"⚠️ No text generated for {topic_variant}")
+            return
+
+        # Post to LinkedIn
+        res = post_to_linkedin(text, access_token)
+        logging.info(f"[{datetime.now()}] 📤 LinkedIn response: {res}")
+
+        if isinstance(res, dict) and res.get("ok"):
+            logging.info(f"✅ Auto-post successful for topic: {topic_variant}")
+            if post_id:
+                mark_post_done(post_id)
+                logging.info(f"🗂️ Post {post_id} marked as done in DB.")
         else:
-            out.append(ch)
-    return "".join(out)
+            logging.warning(f"⚠️ Post may have failed. Response: {res}")
 
-def bold_first_line(post_text: str) -> str:
-    lines = post_text.splitlines()
-    for i, line in enumerate(lines):
-        if line.strip():
-            lines[i] = to_unicode_bold(line.strip())
-            break
-    return "\n".join(lines)
-
-import re
-
-def convert_markdown_bold_to_unicode(text: str) -> str:
-    """Replace all **bold** Markdown parts with Unicode bold."""
-    def repl(match):
-        inner = match.group(1).strip()
-        return to_unicode_bold(inner)
-    return re.sub(r"\*\*(.*?)\*\*", repl, text)
-
-
-
-
-
-
+    except Exception as e:
+        logging.exception(f"💥 Error while executing scheduled post for topic '{topic_variant}': {e}")
+    finally:
+        if 'ctx' in locals():
+            ctx.pop()  # ✅ pop the context cleanly

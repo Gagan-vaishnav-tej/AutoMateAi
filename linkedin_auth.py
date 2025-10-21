@@ -1,6 +1,7 @@
 import requests
 from flask import Blueprint, session, redirect, request, url_for, current_app
 from markupsafe import escape
+from db import save_token
 
 linkedin_bp = Blueprint("linkedin", __name__, url_prefix="/linkedin")
 
@@ -40,6 +41,7 @@ def callback():
     token_json = response.json()
     access_token = token_json.get("access_token")
     session["linkedin_access_token"] = access_token
+    save_token("linkedin", access_token)
     return redirect(url_for("index"))
 
 
