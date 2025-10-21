@@ -153,7 +153,82 @@ def post_to_linkedin(text, access_token, image_url=None, hashtags=None):
         return {"ok": False, "error": f"LinkedIn post failed: {post_res.status_code}", "details": post_res.text}
 
 
-def post_to_twitter(text):
-    time.sleep(0.3)
-    logger.info("Pretend-posted to Twitter/X: %s", text[:120])
-    return {"ok": True, "message": "✅ Post shared to Twitter/X (mock)."}
+
+
+def post_to_twitter(post_text,access_token):
+    """
+    Posts a compressed, Groq-optimized tweet to Twitter (X).
+    - Takes the full LinkedIn-style post
+    - Compresses to <=280 chars using Groq intelligently
+    - Posts with verified user token
+    """
+    try:
+        if not access_token:
+            return {"ok": False, "message": "⚠️ No Twitter login found. Please login first."}, 400
+
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        # Step 1 — Verify Twitter token
+        verify_resp = requests.get("https://api.twitter.com/2/users/me", headers=headers)
+        if verify_resp.status_code != 200:
+            return {
+                "ok": False,
+                "message": "⚠️ Invalid Twitter access token. Please re-login.",
+                "error": verify_resp.text
+            }, 400
+
+        user_data = verify_resp.json().get("data", {})
+        username = user_data.get("username", "Unknown")
+
+        # Step 2 — Compress text using Groq (LLM smart shortening)
+        compression_prompt = (
+            "You are a professional Twitter content editor. "
+            "Rewrite the following text to fit within 280 characters, "
+            "while keeping its essence, tone, hashtags, and Unicode bold formatting (𝐛𝐨𝐥𝐝). "
+            "Do not add explanations, just output the final tweet text.\n\n"
+            f"Text:\n{post_text}"
+        )
+
+        groq_resp = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You shorten posts for Twitter preserving meaning and engagement."},
+                {"role": "user", "content": compression_prompt},
+            ],
+            temperature=0.6
+        )
+
+        compressed_text = groq_resp.choices[0].message.content.strip()
+        if len(compressed_text) > 280:
+            compressed_text = compressed_text[:277] + "…"  # hard truncate fallback
+
+        # Step 3 — Post to Twitter
+        post_url = "https://api.twitter.com/2/tweets"
+        payload = {"text": compressed_text}
+        headers["Content-Type"] = "application/json"
+
+        resp = requests.post(post_url, headers=headers, json=payload)
+        if resp.status_code == 201:
+            tweet_data = resp.json().get("data", {})
+            return {
+                "ok": True,
+                "message": f"✅ Tweet posted successfully as @{username}",
+                "tweet": tweet_data,
+                "compressed_text": compressed_text
+            }
+        elif resp.status_code == 429:
+            logging.warning("⚠️ Rate limit hit, waiting before retrying...")
+            time.sleep(60)
+            return post_to_twitter(post_text)
+        else:
+            return {
+                "ok": False,
+                "message": f"❌ Error posting to Twitter",
+                "status": resp.status_code,
+                "error": resp.text
+            }, 400
+
+    except Exception as e:
+        logging.exception("Twitter posting failed")
+        return {"ok": False, "message": "⚠️ Internal error while posting to Twitter.", "error": str(e)}, 500
+

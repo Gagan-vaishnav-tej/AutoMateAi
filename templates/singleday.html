@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Single-Day Campaign Scheduler — AI Post Assistant</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        /* CONSOLIDATED AND CORRECT CSS */
+        :root {
+            --bg-color: #f7f9fc;
+            --card-bg: #ffffff;
+            --accent: #0073b1; /* LinkedIn blue */
+            --text-color: #222;
+            --border-color: #e0e6ed;
+            --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+
+        body {
+            background: var(--bg-color);
+            font-family: "Inter", "Segoe UI", sans-serif;
+            color: var(--text-color);
+            margin: 0;
+            padding: 30px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            padding: 24px;
+            margin-bottom: 24px;
+            transition: all 0.2s ease-in-out;
+            max-width: 900px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+        }
+
+        h2, h3 {
+            color: var(--accent);
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        input {
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            font-size: 15px;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(0, 115, 177, 0.15);
+        }
+
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 18px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            align-self: flex-start;
+            transition: all 0.25s ease;
+        }
+
+        button:hover {
+            background: #005c8f;
+            transform: translateY(-1px);
+        }
+
+        .timestamp-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            background: #f9fafb;
+            padding: 10px 14px;
+            border-radius: 8px;
+            border: 1px solid #e9edf3;
+        }
+
+        .timestamp-row label {
+            min-width: 100px;
+            font-weight: 500;
+            color: #555;
+            margin-bottom: 0;
+        }
+
+        .timestamp-row input {
+            max-width: 100px;
+            text-align: center;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            background: #fff;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+
+        th, td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #eaeaea;
+            text-align: left;
+            font-size: 15px;
+        }
+
+        th {
+            background: #f3f6fa;
+            color: #333;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background: #f9fbfd;
+        }
+
+        td button {
+            background: #ff5c5c;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        td button:hover {
+            background: #e23e3e;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>📅 Start Single-Day Campaign</h2>
+
+        <form id="singleDayForm">
+            <div class="form-group">
+                <label>Topic</label>
+                <input type="text" id="singleTopic" placeholder="Enter campaign topic" required />
+            </div>
+
+            <div class="form-group">
+                <label>Number of Posts (Max 10)</label>
+                <input type="number" id="singlePostCount" min="1" max="10" value="" placeholder="1" required />
+            </div>
+
+            <div id="timestampContainer"></div>
+
+            <button type="submit">🚀 Schedule Campaign</button>
+        </form>
+    </div>
+
+    <hr style="border: none; border-top: 1px solid var(--border-color); margin: 30px auto; max-width: 900px;" />
+
+    <div class="card">
+        <h3>Active Scheduled Jobs</h3>
+        <table id="jobsTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Topic</th>
+                    <th>Run Time</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <script>
+        const postCountInput = document.getElementById("singlePostCount");
+        const timestampContainer = document.getElementById("timestampContainer");
+
+        // Listen for both input (typing/spinner) and blur (leaving the field)
+        postCountInput.addEventListener("input", generateTimestampInputs);
+        postCountInput.addEventListener("blur", generateTimestampInputs); 
+
+        function generateTimestampInputs() {
+            const inputValue = parseInt(postCountInput.value);
+            
+            // 1. Check if the input is a valid number greater than 0
+            let count = 0;
+            if (!isNaN(inputValue) && inputValue >= 1) {
+                // Clamp the number between 1 and 10
+                count = Math.min(10, Math.max(1, inputValue));
+            }
+            
+            timestampContainer.innerHTML = ""; // Always clear existing rows
+
+            // 2. Enforce min/max value in the input field ONLY if a valid count > 0 exists
+            // This is the key to leaving the field empty when the user clears it.
+            if (count > 0) {
+                postCountInput.value = count; 
+            } else {
+                postCountInput.value = ''; 
+                // Stop function execution if count is 0 (i.e., input is empty or invalid)
+                return;
+            }
+
+            // 3. Only generate timestamps if count is 1 or more
+            for (let i = 1; i <= count; i++) {
+                const row = document.createElement("div");
+                row.className = "timestamp-row";
+                
+                // Use default values
+                let defaultHour = 9 + (i - 1);
+                let defaultMinute = 0;
+
+                // Simple time rollover for defaults
+                if (defaultHour >= 24) {
+                    defaultHour = defaultHour % 24;
+                }
+
+                row.innerHTML = `
+                    <label>Post ${i} Time:</label>
+                    <input type="number" id="hour_${i}" min="0" max="23" value="${defaultHour}" placeholder="Hour (24h)" required />
+                    <input type="number" id="minute_${i}" min="0" max="59" value="${defaultMinute}" placeholder="Minute" required />
+                `;
+                timestampContainer.appendChild(row);
+            }
+        }
+
+        // Do NOT call generateTimestampInputs() on initialization anymore.
+        // This ensures the page loads with no timestamps visible until a number is entered.
+
+        document.getElementById("singleDayForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const topic = document.getElementById("singleTopic").value.trim();
+            const count = parseInt(postCountInput.value);
+            const schedule = [];
+            
+            if (isNaN(count) || count < 1) {
+                alert("Please enter a valid number of posts (1 to 10).");
+                postCountInput.focus();
+                return;
+            }
+
+            for (let i = 1; i <= count; i++) {
+                const hour = parseInt(document.getElementById(`hour_${i}`).value);
+                const minute = parseInt(document.getElementById(`minute_${i}`).value);
+                if (isNaN(hour) || isNaN(minute)) {
+                    alert(`Please enter valid time for post ${i}.`);
+                    return;
+                }
+                schedule.push({ hour, minute });
+            }
+
+            const payload = { topic, posts: count, schedule };
+
+            
+            const submitButton = e.submitter;
+            submitButton.disabled = true;
+            submitButton.textContent = "Scheduling...";
+
+            console.log("📦 Sending payload:", JSON.stringify(payload, null, 2));
+
+            try {
+                const res = await fetch("/ai/campaign/start_single_day", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    alert(`📅 Single-day campaign scheduled with ${schedule.length} posts! Message: ${data.message || 'Success'}`);
+                    loadJobs();
+                } else {
+                    alert("❌ Failed to schedule campaign: " + (data.error || data.message || 'Unknown Error'));
+                }
+            } catch (error) {
+                alert("❌ Network Error: Could not connect to the server.");
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = "🚀 Schedule Campaign";
+            }
+        });
+
+        async function loadJobs() {
+            const res = await fetch("/jobs");
+            if (!res.ok) {
+                console.error("Failed to load jobs:", res.statusText);
+                return;
+            }
+            const jobs = await res.json();
+            const tbody = document.querySelector("#jobsTable tbody");
+            tbody.innerHTML = "";
+            
+            if (jobs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #777;">No active scheduled jobs.</td></tr>';
+                return;
+            }
+
+            jobs.forEach((job) => {
+                const tr = document.createElement("tr");
+
+                const rawTopic = job.topic || job.args?.[0] || 'N/A';
+                const topic = rawTopic.substring(0, 50) + (rawTopic.length > 50 ? '...' : '');
+
+                tr.innerHTML = `
+                    <td>${job.id.substring(0, 8)}...</td>
+                    <td>${topic}</td> 
+                    <td>${new Date(job.next_run_time).toLocaleString()}</td>
+                    <td><button onclick="cancelJob('${job.id}')">❌ Cancel</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function cancelJob(jobId) {
+            if (!confirm(`Are you sure you want to cancel job ${jobId.substring(0, 8)}...?`)) return;
+
+            try {
+                const res = await fetch(`/jobs/cancel/${jobId}`, { method: "DELETE" });
+                const data = await res.json();
+
+                if (res.ok) {
+                    alert(`✅ Job ${jobId.substring(0, 8)}... cancelled successfully!`);
+                } else {
+                    alert(`❌ Failed to cancel job: ${data.error || data.message || 'Unknown error'}`);
+                }
+            } catch (error) {
+                alert("❌ Network Error: Could not cancel the job.");
+            }
+            loadJobs();
+        }
+
+        loadJobs();
+    </script>
+</body>
+</html>

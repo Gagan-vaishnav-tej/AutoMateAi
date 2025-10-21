@@ -1,87 +1,282 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Social Media OAuth Dashboard</title>
-  <style>
-    body {
-      font-family: "Inter", sans-serif;
-      background: #f9fafb;
-      margin: 0;
-      padding: 40px;
-      color: #111827;
-    }
-    h1 {
-      color: #2563eb;
-    }
-    a {
-      color: #2563eb;
-      text-decoration: none;
-      font-weight: 500;
-    }
-    a:hover {
-      text-decoration: underline;
-    }
-    .card {
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-      padding: 20px;
-      margin-bottom: 20px;
-      max-width: 600px;
-    }
-    .status {
-      margin-top: 10px;
-      font-size: 15px;
-    }
-    .login-links {
-      margin-bottom: 20px;
-    }
-    button {
-      background: #2563eb;
-      color: white;
-      padding: 10px 16px;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 15px;
-    }
-    button:hover {
-      background: #1d4ed8;
-    }
-  </style>
+    <meta charset="UTF-8" />
+    <title>Social Media OAuth Dashboard</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        /* BASE STYLES & COLOR PALETTE (Unified across all pages) */
+        :root {
+            --bg-color: #f7f9fc;
+            --card-bg: #ffffff;
+            --accent: #0073b1; /* LinkedIn blue */
+            --twitter-blue: #1DA1F2; /* Modern X/Twitter blue for contrast */
+            --text-color: #1f2937;
+            --secondary-text: #4b5563;
+            --border-color: #e0e6ed;
+            --shadow: 0 8px 25px rgba(0, 0, 0, 0.1); /* Deeper shadow for cards */
+        }
+        
+        body {
+            font-family: "Inter", "Segoe UI", sans-serif;
+            background: var(--bg-color);
+            margin: 0;
+            display: flex;
+            min-height: 100vh;
+            color: var(--text-color);
+        }
+
+        /* SIDEBAR STYLES */
+        .sidebar {
+            width: 250px; /* Slightly wider sidebar */
+            background: var(--card-bg); /* White background for clean look */
+            padding: 24px 20px;
+            border-right: 1px solid var(--border-color);
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar h2 {
+            font-size: 1.5rem;
+            color: var(--accent);
+            margin-bottom: 30px;
+            text-align: center;
+            font-weight: 700;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 15px;
+        }
+        .sidebar-link {
+            background: var(--secondary-text);
+            color: white;
+            padding: 12px 18px;
+            border: none;
+            border-radius: 10px; /* Larger border radius */
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.25s ease;
+            text-decoration: none;
+            margin-bottom: 12px;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        .sidebar-link:hover {
+            background: var(--accent);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        /* MAIN CONTENT */
+        .main-content {
+            flex-grow: 1;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            color: var(--accent);
+            font-size: 2.5rem;
+            margin-bottom: 40px;
+            text-align: center;
+            font-weight: 800;
+        }
+
+        /* CARD STYLES */
+        .card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            padding: 30px;
+            margin-bottom: 25px;
+            width: 100%;
+            max-width: 650px;
+            border: 1px solid var(--border-color);
+            transition: transform 0.3s ease-in-out;
+        }
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        h3 {
+            color: var(--text-color);
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-top: 0;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        /* STATUS & ICONS */
+        .status {
+            font-size: 1.1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 15px 0;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        .status-success {
+            color: #059669; /* Green text */
+            background: #dcfce7; /* Light green background */
+        }
+        .status-error {
+            color: #ef4444; /* Red text */
+            background: #fee2e2; /* Light red background */
+        }
+
+        /* AUTH ACTION LINKS (Styled as buttons) */
+        .auth-link {
+            display: block;
+            width: 100%;
+            padding: 12px 18px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 1rem;
+            font-weight: 700;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            margin-top: 20px;
+        }
+
+        /* LinkedIn Specific Link Styles */
+        .linkedin-login {
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 4px 6px rgba(0, 115, 177, 0.3);
+        }
+        .linkedin-login:hover {
+            background: #005c8f;
+        }
+        .linkedin-logout {
+            background: #f1f5f9;
+            color: var(--secondary-text);
+            border: 1px solid var(--border-color);
+        }
+        .linkedin-logout:hover {
+            background: #e2e8f0;
+        }
+        
+        /* Twitter Specific Link Styles */
+        .twitter-login {
+            background: var(--twitter-blue);
+            color: white;
+            box-shadow: 0 4px 6px rgba(29, 161, 242, 0.3);
+        }
+        .twitter-login:hover {
+            background: #1a91da;
+        }
+        .twitter-logout {
+            background: #f1f5f9;
+            color: var(--secondary-text);
+            border: 1px solid var(--border-color);
+        }
+        .twitter-logout:hover {
+            background: #e2e8f0;
+        }
+        
+        /* Utility for SVG coloring */
+        .svg-icon {
+            width: 24px;
+            height: 24px;
+        }
+        .svg-icon.linkedin path { fill: var(--accent); }
+        .svg-icon.twitter path { fill: var(--twitter-blue); }
+        .status-success .svg-icon path { fill: #059669; }
+        .status-error .svg-icon path { fill: #ef4444; }
+
+        /* RESPONSIVENESS */
+        @media (max-width: 800px) {
+            body {
+                flex-direction: column;
+            }
+            .sidebar {
+                width: 100%;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            }
+            .sidebar h2 {
+                margin-bottom: 20px;
+                padding-bottom: 10px;
+            }
+            .main-content {
+                padding: 20px;
+            }
+        }
+
+    </style>
 </head>
 <body>
 
-  <h1>🌐 Social Media OAuth Dashboard</h1>
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <h2>🚀 AI Post Manager</h2>
+        <a class="sidebar-link" href="/generatepost">💬 AI Assistant</a>
+        <a class="sidebar-link" href="/createcampaign">🗓️ Campaigns</a>
+        <a class="sidebar-link" href="/singleday">🗓️ Single day Post</a>
+    </div>
 
-  <div class="card">
-    <h2>LinkedIn Authentication</h2>
-    {% if session.get('linkedin_access_token') %}
-      <p class="status">✅ Logged in to LinkedIn.</p>
-      <a href="{{ url_for('linkedin.logout') }}">Logout from LinkedIn</a>
-    {% else %}
-      <p class="status">❌ Not logged in to LinkedIn.</p>
-      <a href="{{ url_for('linkedin.login') }}">Login with LinkedIn</a>
-    {% endif %}
-  </div>
+    <!-- Main Content -->
+    <div class="main-content">
+        <h1>🌐 Social Media Integration Hub</h1>
 
-  <div class="card">
-    <h2>Twitter Authentication</h2>
-    {% if session.get('twitter_access_token') %}
-      <p class="status">✅ Logged in to Twitter.</p>
-      <a href="{{ url_for('twitter.logout') }}">Logout from Twitter</a>
-    {% else %}
-      <p class="status">❌ Not logged in to Twitter.</p>
-      <a href="{{ url_for('twitter.login') }}">Login with Twitter</a>
-    {% endif %}
-  </div>
+        <!-- LinkedIn Card -->
+        <div class="card">
+            <h3>
+                <svg class="svg-icon linkedin" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M20.447 20.452h-3.554v-5.918c0-1.423-.025-3.266-1.99-3.266-1.994 0-2.305 1.55-2.305 3.176v5.996H8.448V9.471h3.413v1.579h.048c.477-.9 1.637-1.994 3.37-1.994 3.61 0 4.288 2.37 4.288 5.424v6.231zM5.216 7.228c-1.42 0-2.57-.923-2.57-2.053 0-1.13.987-2.052 2.533-2.052 1.54 0 2.56 1.13 2.574 2.052.015 1.13-.986 2.053-2.53 2.053zM3.484 9.471h3.414v10.981H3.484V9.471z"/>
+                </svg>
+                LinkedIn Authentication
+            </h3>
+            {% if session.get('linkedin_access_token') %}
+                <p class="status status-success">
+                    <span style="font-size: 1.5rem;">👍</span>
+                    You are currently **Logged in** to LinkedIn.
+                </p>
+                <a class="auth-link linkedin-logout" href="{{ url_for('linkedin.logout') }}">Logout from LinkedIn</a>
+            {% else %}
+                <p class="status status-error">
+                    <span style="font-size: 1.5rem;">⚠️</span>
+                    You are currently **Not logged in** to LinkedIn.
+                </p>
+                <a class="auth-link linkedin-login" href="{{ url_for('linkedin.login') }}">Login with LinkedIn</a>
+            {% endif %}
+        </div>
 
-  <div class="card">
-    <h2>AI Post Assistant</h2>
-    <p>Once logged in, use the AI Assistant to generate and publish posts directly.</p>
-    <button onclick="window.location.href='/ai_post.html'">Launch AI Post Assistant 🚀</button>
-  </div>
+        <!-- Twitter Card -->
+        <div class="card">
+            <h3>
+                <svg class="svg-icon twitter" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M18.9 4.3l-1.5 1.4c1.1 1.7 1.2 3.8 0.3 5.7c-.5.8-1.2 1.5-2.1 2c-0.9 0.5-1.9 0.8-2.9 0.8h-0.2c-0.7 0-1.5-0.2-2.2-0.6c-0.7-0.4-1.3-0.9-1.8-1.7c-0.6-1.1-0.9-2.3-0.9-3.5c0-1.2 0.3-2.3 0.9-3.4c0.4-0.7 1-1.3 1.7-1.7c0.7-0.4 1.5-0.6 2.3-0.6h0.2c0.7 0 1.4 0.2 2.1 0.5c0.7 0.3 1.3 0.8 1.8 1.4l1.5 1.5l2.4-0.6c-0.3-0.8-0.8-1.6-1.5-2.2c-1.3-1.1-2.8-1.8-4.5-2c-1.7-0.2-3.4 0-5.1 0.6c-1.7 0.6-3.2 1.6-4.5 3c-1.3 1.4-2.2 3-2.6 4.8c-0.4 1.7-0.4 3.5 0.1 5.2c0.6 1.7 1.6 3.2 3 4.5c1.4 1.3 3 2.2 4.8 2.6c1.7 0.4 3.5 0.3 5.2-0.2c1.7-0.5 3.2-1.5 4.5-2.8c1.3-1.3 2.1-2.9 2.5-4.6c0.4-1.7 0.3-3.4-0.2-5.1c-0.5-1.7-1.4-3.2-2.8-4.5c-1.3-1.3-2.8-2.2-4.5-2.6c-1.7-0.4-3.5-0.3-5.2 0.2z"/>
+                </svg>
+                Twitter Authentication
+            </h3>
+            {% if session.get('twitter_access_token') %}
+                <p class="status status-success">
+                    <span style="font-size: 1.5rem;">👍</span>
+                    You are currently **Logged in** to Twitter.
+                </p>
+                <a class="auth-link twitter-logout" href="{{ url_for('twitter.logout') }}">Logout from Twitter</a>
+            {% else %}
+                <p class="status status-error">
+                    <span style="font-size: 1.5rem;">⚠️</span>
+                    You are currently **Not logged in** to Twitter.
+                </p>
+                <a class="auth-link twitter-login" href="{{ url_for('twitter.login') }}">Login with Twitter</a>
+            {% endif %}
+        </div>
+        
+    </div>
 
 </body>
 </html>

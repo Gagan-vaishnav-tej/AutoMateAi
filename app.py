@@ -71,13 +71,17 @@ app.scheduler = scheduler
 def index():
     return render_template("index.html")
 
-@app.route("/ai_post.html")
+@app.route("/generatepost")
 def ai_post_ui():
     return render_template("ai_post.html")
 
-@app.route("/campaign")
+@app.route("/createcampaign")
 def campaign_ui():
     return render_template("campaign.html")
+
+@app.route("/singleday")
+def singleday_ui():
+    return render_template("singleday.html")
 
 @app.route("/jobs")
 def list_jobs():

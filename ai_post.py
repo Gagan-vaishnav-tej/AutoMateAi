@@ -44,7 +44,8 @@ def post_confirmed():
             access_token = get_token("linkedin")
             res = tools.post_to_linkedin(text,access_token)
         elif platform in ("twitter", "x"):
-            res = tools.post_to_twitter(text)
+            access_token = get_token("twitter")
+            res = tools.post_to_twitter(text,access_token)
         else:
             return jsonify({"ok": False, "message": "Unknown platform"}), 400
 
@@ -118,7 +119,22 @@ def start_campaign():
 
         # STEP 1: Ask AI for a multi-day content plan
         ai_agent = AIPostAgent()
-        plan_prompt = f"Create a {days}-day LinkedIn post campaign plan about '{topic}', with each day labeled 'Day 1:', 'Day 2:' etc., and a brief title/summary for each."
+        # plan_prompt = f"Create a {days}-day LinkedIn post campaign plan about '{topic}', with each day labeled 'Day 1:', 'Day 2:' etc., and a brief title/summary for each."
+        
+        if int(days) == 1:
+            plan_prompt = (
+                f"Create ONE standalone LinkedIn post about '{topic}'. "
+                f"Write it as a single post (not a campaign). "
+                f"Include a short, bold Unicode-style heading and a concise, professional paragraph."
+            )
+        else:
+            plan_prompt = (
+                f"Create a {days}-day LinkedIn post campaign plan about '{topic}'. "
+                f"Each day should be clearly labeled as 'Day 1:', 'Day 2:', etc. "
+                f"Give each day a bold Unicode-style title (e.g., 𝐃𝐚𝐲 𝟏: 𝐈𝐧𝐭𝐫𝐨𝐝𝐮𝐜𝐭𝐢𝐨𝐧 𝐭𝐨 ...). "
+                f"Include 1–2 engaging sentences describing the focus for that day."
+            )
+        
         resp = ai_agent.handle_user_input(plan_prompt, "linkedin")
         generated_plan = resp.get("text") or resp.get("preview", "")
 
@@ -204,3 +220,132 @@ def execute_scheduled_post(topic_variant, post_id=None):
     finally:
         if 'ctx' in locals():
             ctx.pop()  # ✅ pop the context cleanly
+
+def split_posts_into_list(plan_text: str):
+    """
+    Splits a single-day multi-post AI-generated plan into individual posts.
+    Expects text like 'Post 1: ...', 'Post 2: ...'
+    Returns: [{"title": "Post 1: ...", "content": "..."}]
+    """
+    import re
+
+    # Match Post 1:, 𝐏𝐨𝐬𝐭 𝟐:, etc.
+    pattern = r"(?=(?:\bPost|𝐏𝐨𝐬𝐭)\s*\d+\s*[:：])"
+    parts = re.split(pattern, plan_text, flags=re.IGNORECASE)
+    posts = []
+
+    for part in parts:
+        clean = part.strip()
+        if not clean:
+            continue
+
+        # Separate first line as title
+        lines = clean.splitlines()
+        title = lines[0].strip()
+        body = "\n".join(lines[1:]).strip()
+
+        posts.append({
+            "title": title,
+            "content": body or title
+        })
+
+    return posts
+
+
+@ai_bp.route("/campaign/start_single_day", methods=["POST"])
+def start_single_day_campaign():
+    """
+    Start a single-day LinkedIn campaign.
+    The user specifies number of posts and their timestamps (hour/minute for each post).
+    Example input:
+    {
+        "topic": "AI in Marketing",
+        "posts": 3,
+        "schedule": [
+            {"hour": 9, "minute": 0},
+            {"hour": 13, "minute": 30},
+            {"hour": 17, "minute": 0}
+        ]
+    }
+    """
+    try:
+        data = request.get_json() or {}
+        topic = data.get("topic")
+        num_posts = int(data.get("posts", 1))
+        schedule_list = data.get("schedule", [])
+
+        if not topic:
+            return jsonify({"ok": False, "message": "Topic is required"}), 400
+
+        if not schedule_list or len(schedule_list) != num_posts:
+            return jsonify({
+                "ok": False,
+                "message": "Schedule list must match the number of posts (each with hour & minute)."
+            }), 400
+
+        # === STEP 1: Generate multiple post ideas for the same day ===
+        # === STEP 1: Generate post subtopics for the day ===
+        ai_agent = AIPostAgent()
+        plan_prompt = (
+            f"Create {num_posts} LinkedIn post ideas for a single-day campaign on '{topic}'. "
+            "Each idea should be short and labeled as 'Post 1:', 'Post 2:', etc. "
+            "Use bold Unicode-style titles for each (e.g., 𝐏𝐨𝐬𝐭 𝟏: 𝐀𝐈 𝐢𝐧 𝐌𝐚𝐫𝐤𝐞𝐭𝐢𝐧𝐠 𝐓𝐨𝐝𝐚𝐲). "
+            "Do NOT write the full post content — just concise subtopic titles."
+        )
+        resp = ai_agent.handle_user_input(plan_prompt, "linkedin")
+        generated_plan = resp.get("text") or resp.get("preview", "")
+
+        if not generated_plan:
+            return jsonify({"ok": False, "error": "AI plan generation failed"}), 500
+
+        # Parse post subtopics
+        daily_posts = split_posts_into_list(generated_plan)
+
+        # === STEP 2: Save metadata ===
+        campaign_id = save_campaign(topic, num_posts, None, None)
+
+        # === STEP 3: Schedule post generation & posting ===
+        now = datetime.now()
+        scheduler = current_app.scheduler
+
+        for i, post in enumerate(daily_posts):
+            hour = schedule_list[i]["hour"]
+            minute = schedule_list[i]["minute"]
+
+            run_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if run_time < now:
+                run_time += timedelta(days=1)
+
+            job_id = f"single_day_{campaign_id}_{i+1}"
+
+            print(f"🕒 Scheduling {job_id} for {run_time}")
+
+            scheduler.add_job(
+                func=execute_scheduled_post,
+                trigger="date",
+                run_date=run_time,
+                args=[post["title"], f"{campaign_id}_{i+1}"],
+                id=job_id,
+                replace_existing=True,
+            )
+
+            current_app.logger.info(f"🕒 Scheduled single-day post {i+1}/{num_posts} at {run_time}")
+
+        return jsonify({
+            "ok": True,
+            "message": f"📅 Single-day campaign scheduled with {num_posts} posts.",
+            "posts": num_posts,
+            "mode": "single-day",
+            "schedule": schedule_list
+        })
+
+
+    except Exception as e:
+        current_app.logger.exception("start_single_day_campaign error")
+        return jsonify({
+            "ok": False,
+            "message": "Internal error",
+            "error": str(e)
+        }), 500
+
+

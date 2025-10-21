@@ -3,6 +3,8 @@ from flask import Blueprint, session, redirect, request, url_for, current_app
 from markupsafe import escape
 import os
 
+from db import save_token
+
 twitter_bp = Blueprint("twitter", __name__, url_prefix="/twitter")
 
 TWITTER_AUTH_URL = "https://twitter.com/i/oauth2/authorize"
@@ -88,6 +90,7 @@ def callback():
     session["twitter_access_token"] = access_token
     session.pop("twitter_oauth_state", None)
     session.pop("twitter_code_verifier", None)
+    save_token("twitter", access_token)
 
     return redirect(url_for("index"))
 
